@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
@@ -6,35 +5,348 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>יער הצלילים - הרפתקה פונולוגית</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;700;900&family=Varela+Round&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Varela+Round&family=Heebo:wght@400;700;900&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Varela Round', 'Heebo', sans-serif;
             background-color: #f0fdf4;
             overflow-x: hidden;
+            margin: 0;
+            user-select: none;
         }
-        .animate-float {
-            animation: float 3s ease-in-out infinite;
-        }
+        .animate-float { animation: float 3s ease-in-out infinite; }
         @keyframes float {
-            0% { transform: translateY(0px); }
+            0%, 100% { transform: translateY(0px); }
             50% { transform: translateY(-10px); }
-            100% { transform: translateY(0px); }
+        }
+        @keyframes fall {
+            to { transform: translateY(100vh) rotate(360deg); }
+        }
+        .confetti {
+            position: fixed;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 1000;
+            animation: fall 3s linear forwards;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-8px); }
+            75% { transform: translateX(8px); }
+        }
+        .animate-shake { animation: shake 0.2s ease-in-out 3; }
+        .glass {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        .correct-answer {
+            background-color: #22c55e !important;
+            color: white !important;
+            border-color: #16a34a !important;
+            transform: scale(1.05);
+            box-shadow: 0 10px 15px -3px rgba(34, 197, 94, 0.4);
+        }
+        .wrong-answer {
+            background-color: #ef4444 !important;
+            color: white !important;
+            border-color: #dc2626 !important;
         }
     </style>
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.34.0"
-  }
-}
-</script>
+    <script type="importmap">
+    {
+      "imports": {
+        "@google/genai": "https://esm.sh/@google/genai@^1.35.0"
+      }
+    }
+    </script>
 </head>
-<body class="bg-green-50">
-    <div id="root"></div>
+<body class="bg-green-50 min-h-screen flex flex-col">
+    
+    <header class="w-full max-w-4xl mx-auto p-4 flex justify-between items-center glass shadow-sm rounded-b-3xl sticky top-0 z-50 mt-2">
+        <button onclick="window.showLobby()" class="p-2 hover:bg-green-100 rounded-full transition-all flex items-center gap-2 text-green-700 font-bold active:scale-95">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-home"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            <span class="hidden sm:inline">התחלה</span>
+        </button>
+        <div class="flex items-center gap-3">
+            <div id="score-badge" class="flex items-center gap-2 bg-yellow-100 px-5 py-2 rounded-full border-2 border-yellow-200 text-yellow-700 font-black text-lg shadow-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="#eab308" stroke="#ca8a04" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                <span id="score-text">0</span>
+            </div>
+            <div class="text-2xl font-black text-green-600 tracking-tight mr-2">יער הצלילים</div>
+        </div>
+    </header>
+
+    <main id="app-container" class="flex-1 w-full max-w-4xl mx-auto p-6 flex flex-col items-center justify-center">
+        <!-- Content will be injected here via script -->
+    </main>
+
+    <footer class="p-6 text-center text-gray-400 text-sm font-medium">
+        נוצר עבור תלמידי כיתה א' • חוויית למידה מהנה
+    </footer>
+
+    <script type="module">
+        import { GoogleGenAI, Type } from "@google/genai";
+
+        // Global State
+        let score = 0;
+        let currentQuestions = [];
+        let currentIdx = 0;
+        let isAnswering = false;
+
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const appContainer = document.getElementById('app-container');
+
+        // Text to Speech
+        function playTTS(text) {
+            if (!window.speechSynthesis) return;
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'he-IL';
+            utterance.rate = 0.9;
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // --- View Handlers ---
+
+        window.showLobby = () => {
+            currentQuestions = [];
+            currentIdx = 0;
+            appContainer.innerHTML = `
+                <div class="flex flex-col items-center gap-10 py-8 w-full">
+                    <div class="text-center animate-in fade-in slide-in-from-bottom-4 duration-700">
+                        <h1 class="text-6xl font-black text-green-700 mb-4 animate-float">שלום כיתה א'!</h1>
+                        <p class="text-2xl text-green-600 font-bold opacity-90">איזו הרפתקה נתחיל היום?</p>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 w-full px-4">
+                        ${renderLevelCard("כמה הברות?", "נמחה כפיים ונחלק מילים", "🥁", "bg-orange-50 border-orange-200 text-orange-700", "SYLLABLES")}
+                        ${renderLevelCard("צליל פותח", "באיזה צליל המילה מתחילה?", "👂", "bg-blue-50 border-blue-200 text-blue-700", "INITIAL_SOUND")}
+                        ${renderLevelCard("מי מתחרז?", "נמצא מילים שנגמרות אותו דבר", "🎶", "bg-purple-50 border-purple-200 text-purple-700", "RHYMES")}
+                    </div>
+                </div>
+            `;
+        };
+
+        function renderLevelCard(title, desc, icon, color, type) {
+            return `
+                <button onclick="window.startLevel('${type}')" class="${color} p-8 rounded-[2rem] border-4 flex flex-col items-center text-center gap-5 hover:scale-105 active:scale-95 transition-all shadow-xl hover:shadow-2xl group relative overflow-hidden">
+                    <div class="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
+                    <div class="text-7xl group-hover:animate-bounce transform transition-transform">${icon}</div>
+                    <div class="space-y-2">
+                        <h3 class="text-2xl font-black tracking-tight">${title}</h3>
+                        <p class="font-bold opacity-70 leading-tight">${desc}</p>
+                    </div>
+                    <div class="mt-4 bg-white px-6 py-2 rounded-full flex items-center gap-2 font-black shadow-sm group-hover:bg-green-500 group-hover:text-white transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/></svg>
+                        התחל
+                    </div>
+                </button>
+            `;
+        }
+
+        window.startLevel = async (type) => {
+            renderLoading();
+            try {
+                const instructions = {
+                    SYLLABLES: "How many syllables (הברות) are in the following word? Options should be numbers like '1', '2', '3', '4'.",
+                    INITIAL_SOUND: "What is the initial sound (צליל פותח) of this word? Options should be single sounds like 'בָּ', 'מָ', 'לִ', etc.",
+                    RHYMES: "Which of these words rhymes (מתחרז) with the main word?"
+                };
+
+                const prompt = `אתה מורה לכיתה א'. צור 5 שאלות למשחק מודעות פונולוגית בנושא: ${type}.
+                הנחיות: ${instructions[type]}
+                השתמש במילים פשוטות ויומיומיות בעברית המתאימות לילדים בני 6.
+                Return ONLY JSON array of objects with fields: word, instruction, options (array of 3-4 strings), correctAnswer.`;
+
+                const response = await ai.models.generateContent({
+                    model: "gemini-3-flash-preview",
+                    contents: prompt,
+                    config: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    word: { type: Type.STRING },
+                                    instruction: { type: Type.STRING },
+                                    options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                    correctAnswer: { type: Type.STRING }
+                                },
+                                required: ["word", "instruction", "options", "correctAnswer"]
+                            }
+                        }
+                    }
+                });
+
+                currentQuestions = JSON.parse(response.text);
+                currentIdx = 0;
+                renderQuestion();
+            } catch (err) {
+                console.error("Gemini Error:", err);
+                appContainer.innerHTML = `
+                    <div class="text-center p-8 bg-white rounded-3xl shadow-lg border-2 border-red-100">
+                        <div class="text-6xl mb-4">🙊</div>
+                        <h2 class="text-2xl font-bold text-red-600 mb-2">אופס, היער קצת מבולבל...</h2>
+                        <p class="text-gray-600 mb-6">לא הצלחנו להכין את השאלות כרגע.</p>
+                        <button onclick="window.showLobby()" class="bg-green-500 text-white px-8 py-3 rounded-full font-bold">נסה שוב</button>
+                    </div>
+                `;
+            }
+        };
+
+        function renderLoading() {
+            appContainer.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-20 gap-8 animate-in fade-in duration-500">
+                    <div class="relative">
+                        <div class="w-24 h-24 border-8 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
+                        <div class="absolute inset-0 flex items-center justify-center text-3xl">✨</div>
+                    </div>
+                    <p class="text-3xl font-black text-green-700 animate-pulse text-center">היער מתכונן להרפתקה...<br><span class="text-lg opacity-60 font-bold">כבר מתחילים!</span></p>
+                </div>
+            `;
+        }
+
+        function renderQuestion() {
+            const q = currentQuestions[currentIdx];
+            isAnswering = false;
+            
+            appContainer.innerHTML = `
+                <div class="w-full flex flex-col items-center gap-8 max-w-2xl animate-in fade-in zoom-in duration-500">
+                    <div class="w-full bg-gray-200 rounded-full h-4 shadow-inner overflow-hidden border-2 border-white">
+                        <div class="bg-green-500 h-full rounded-full transition-all duration-700 ease-out" style="width: ${((currentIdx + 1) / currentQuestions.length) * 100}%"></div>
+                    </div>
+                    
+                    <div class="w-full bg-white p-10 rounded-[2.5rem] shadow-2xl border-4 border-green-100 relative">
+                        <div class="absolute -top-6 -right-6 bg-yellow-400 text-white w-14 h-14 rounded-full flex items-center justify-center font-black text-2xl shadow-lg border-4 border-white">
+                            ${currentIdx + 1}
+                        </div>
+                        
+                        <div class="flex flex-col items-center mb-10">
+                            <h2 class="text-3xl font-black text-green-900 mb-6 text-center leading-tight">${q.instruction}</h2>
+                            
+                            <div class="relative cursor-pointer group mb-6" onclick="window.speakWord('${q.word}')">
+                                <img src="https://picsum.photos/seed/${encodeURIComponent(q.word)}/400/300" 
+                                     class="w-72 h-56 object-cover rounded-3xl shadow-xl border-4 border-white group-hover:scale-105 transition-transform duration-300" 
+                                     alt="${q.word}"
+                                     onerror="this.src='https://via.placeholder.com/400x300?text=Forest+Image'"/>
+                                <div class="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-3xl">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center gap-4 text-5xl font-black text-blue-600 bg-blue-50 px-8 py-3 rounded-2xl shadow-inner border border-blue-100">
+                                ${q.word}
+                                <button onclick="window.speakWord('${q.word}')" class="p-3 bg-white rounded-full text-blue-600 hover:bg-blue-100 shadow-sm active:scale-90 transition-all">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5" id="options-grid">
+                            ${q.options.map(opt => `
+                                <button onclick="window.handleAnswer(this, '${opt}', '${q.correctAnswer}')" 
+                                        class="option-btn p-5 text-2xl font-black rounded-2xl border-4 border-gray-100 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50 hover:shadow-lg transition-all active:scale-95">
+                                    ${opt}
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+            // Auto-speak the word when question loads
+            setTimeout(() => playTTS(q.word), 600);
+        }
+
+        window.speakWord = (word) => playTTS(word);
+
+        window.handleAnswer = (btn, selected, correct) => {
+            if (isAnswering) return;
+            isAnswering = true;
+
+            const isCorrect = selected.trim() === correct.trim();
+            const btns = document.querySelectorAll('.option-btn');
+            
+            if (isCorrect) {
+                btn.classList.add('correct-answer');
+                score += 10;
+                updateScoreDisplay();
+                createConfetti(40);
+                playTTS("נכון מאוד!");
+            } else {
+                btn.classList.add('wrong-answer', 'animate-shake');
+                playTTS("אוי, לא נורא, נסה שוב");
+                // Show correct one visually
+                btns.forEach(b => {
+                    if (b.innerText.trim() === correct.trim()) {
+                        b.classList.add('bg-green-100', 'border-green-300', 'text-green-700');
+                    }
+                });
+            }
+
+            setTimeout(() => {
+                if (currentIdx < currentQuestions.length - 1) {
+                    currentIdx++;
+                    renderQuestion();
+                } else {
+                    renderCompleted();
+                }
+            }, 2000);
+        };
+
+        function updateScoreDisplay() {
+            const el = document.getElementById('score-text');
+            el.innerText = score;
+            el.parentElement.classList.add('scale-110');
+            setTimeout(() => el.parentElement.classList.remove('scale-110'), 200);
+        }
+
+        function renderCompleted() {
+            appContainer.innerHTML = `
+                <div class="flex flex-col items-center py-16 gap-10 text-center bg-white p-14 rounded-[3rem] shadow-2xl border-8 border-yellow-100 max-w-lg animate-in zoom-in duration-700 relative overflow-hidden">
+                    <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: radial-gradient(circle, #facc15 1px, transparent 1px); background-size: 20px 20px;"></div>
+                    <div class="text-9xl animate-bounce">🥇</div>
+                    <div class="space-y-4">
+                        <h2 class="text-5xl font-black text-green-700">כל הכבוד!</h2>
+                        <p class="text-2xl text-green-600 font-bold opacity-80">סיימת את כל המשימות כמו אלופים!</p>
+                    </div>
+                    <div class="bg-yellow-50 px-10 py-6 rounded-3xl border-4 border-yellow-200">
+                        <div class="text-lg font-bold text-yellow-800 uppercase tracking-widest mb-1">הניקוד שלך</div>
+                        <div class="text-7xl font-black text-yellow-600">${score}</div>
+                    </div>
+                    <button onclick="window.showLobby()" class="group flex items-center gap-3 bg-green-500 text-white px-10 py-5 rounded-full text-2xl font-black hover:bg-green-600 transition-all shadow-xl hover:shadow-green-200 active:scale-95">
+                        שחק שוב
+                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="group-hover:rotate-180 transition-transform duration-500"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                    </button>
+                </div>
+            `;
+            createConfetti(120);
+            playTTS("כל הכבוד! סיימתם את המשחק בהצלחה!");
+        }
+
+        function createConfetti(count = 30) {
+            const colors = ['#facc15', '#f87171', '#60a5fa', '#4ade80', '#a78bfa', '#fb923c'];
+            for (let i = 0; i < count; i++) {
+                const conf = document.createElement('div');
+                conf.className = 'confetti';
+                conf.style.left = Math.random() * 100 + 'vw';
+                conf.style.top = '-20px';
+                conf.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                conf.style.animationDelay = Math.random() * 1.5 + 's';
+                conf.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                conf.style.width = (Math.random() * 10 + 8) + 'px';
+                conf.style.height = conf.style.width;
+                document.body.appendChild(conf);
+                setTimeout(() => conf.remove(), 5000);
+            }
+        }
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            window.showLobby();
+        });
+    </script>
 </body>
 </html>
